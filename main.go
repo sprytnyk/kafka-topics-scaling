@@ -18,8 +18,12 @@ func init() {
 	})
 }
 
-func createTopic(admin *kafka.AdminClient, topic string, numPartitions int, replicationFactor int) {
-	// Fetch metadata for all topics to avoid auto-creation
+func createTopic(
+	admin *kafka.AdminClient,
+	topic string,
+	numPartitions int,
+	replicationFactor int,
+) {
 	metadata, err := admin.GetMetadata(nil, true, 10_000)
 	if err != nil {
 		log.WithError(err).Error("Failed to fetch metadata")
@@ -27,12 +31,17 @@ func createTopic(admin *kafka.AdminClient, topic string, numPartitions int, repl
 	}
 
 	if _, exists := metadata.Topics[topic]; exists {
-		log.Infof("Topic '%s' already exists. Skipping creation.", topic)
+		log.Infof(
+			"Topic '%s' already exists. Skipping creation.",
+			topic,
+		)
 		return
 	}
 
-	// Create topic explicitly
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
 	defer cancel()
 
 	results, err := admin.CreateTopics(
@@ -55,19 +64,30 @@ func createTopic(admin *kafka.AdminClient, topic string, numPartitions int, repl
 				"error": result.Error,
 			}).Error("Topic creation failed")
 		} else {
-			log.Infof("Topic '%s' created successfully", result.Topic)
+			log.Infof(
+				"Topic '%s' created successfully",
+				result.Topic,
+			)
 		}
 	}
 }
 
-// rebalanceCallback handles partition assignment and revocation events
-func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
+func rebalanceCallback(
+	c *kafka.Consumer,
+	event kafka.Event,
+) error {
 	switch e := event.(type) {
 	case kafka.AssignedPartitions:
-		log.WithField("partitions", e.Partitions).Info("Partitions assigned.")
+		log.WithField(
+			"partitions",
+			e.Partitions,
+		).Info("Partitions assigned.")
 		return c.Assign(e.Partitions)
 	case kafka.RevokedPartitions:
-		log.WithField("partitions", e.Partitions).Info("Partitions revoked.")
+		log.WithField(
+			"partitions",
+			e.Partitions,
+		).Info("Partitions revoked.")
 		return c.Unassign()
 	default:
 		log.Infof("Unknown rebalance event: %v", e)
@@ -75,8 +95,13 @@ func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
 	}
 }
 
-// runConsumer starts a Kafka consumer that polls messages
-func runConsumer(ctx context.Context, wg *sync.WaitGroup, config *kafka.ConfigMap, topics []string, i int) {
+func runConsumer(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	config *kafka.ConfigMap,
+	topics []string,
+	i int,
+) {
 	defer wg.Done()
 
 	c, err := kafka.NewConsumer(config)
@@ -86,7 +111,10 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, config *kafka.ConfigMa
 	}
 	defer c.Close()
 
-	if err := c.SubscribeTopics(topics, rebalanceCallback); err != nil {
+	if err := c.SubscribeTopics(
+		topics,
+		rebalanceCallback,
+	); err != nil {
 		log.WithError(err).Error("Failed to subscribe to topics")
 		return
 	}
@@ -117,7 +145,11 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, config *kafka.ConfigMa
 				}
 
 				if err != nil {
-					log.Errorf("Fault commit consumer: (offsets: %v), {%v}", offsets, err)
+					log.Errorf(
+						"Fault commit consumer: (offsets: %v), {%v}",
+						offsets,
+						err,
+					)
 					return
 				} else {
 					log.WithFields(log.Fields{
@@ -132,8 +164,11 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, config *kafka.ConfigMa
 	}
 }
 
-// initConsumers starts multiple consumers concurrently
-func initConsumers(ctx context.Context, wg *sync.WaitGroup, config *kafka.ConfigMap) {
+func initConsumers(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	config *kafka.ConfigMap,
+) {
 	consumers := 2
 	for i := range consumers {
 		wg.Add(1)
@@ -146,7 +181,6 @@ func main() {
 		"bootstrap.servers": "localhost:29092",
 	}
 
-	// Create AdminClient and topic
 	admin, err := kafka.NewAdminClient(adminCfg)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to create AdminClient")
@@ -155,23 +189,23 @@ func main() {
 
 	createTopic(admin, "dummy", 10, 1)
 
-	// Consumer config
 	consumerCfg := &kafka.ConfigMap{
-		"bootstrap.servers":             "localhost:29092",
-		"group.id":                      "go-poc",
-		"auto.offset.reset":             "earliest",
-		"partition.assignment.strategy": "roundrobin",
-		"enable.auto.commit":            false,   // disable auto commits
-		"connections.max.idle.ms":       1800000, // 30 minutes
-		"heartbeat.interval.ms":         10000,   // every 10s
-		"session.timeout.ms":            90000,   // 1.5 minutes
-		"socket.keepalive.enable":       true,    // sends TCP keepalive packets
-		"metadata.max.age.ms":           180000,  // forces periodic metadata requests every 3 minutes
-
+		"bootstrap.servers":               "localhost:29092",
+		"group.id":                        "go-poc",
+		"auto.offset.reset":               "earliest",
+		"partition.assignment.strategy":   "roundrobin",
+		"connections.max.idle.ms":         1800000,
+		"go.application.rebalance.enable": true,
+		"go.logs.channel.enable":          true,
+		"enable.auto.commit":              false,
 	}
 
 	var wg sync.WaitGroup
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
 	defer stop()
 
 	go initConsumers(ctx, &wg, consumerCfg)
